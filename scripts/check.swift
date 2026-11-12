@@ -1,5 +1,5 @@
-// Self-check: com o app rodando, joga o balanço pra esquerda e confere se voltou pro centro.
-// Uso: swift check.swift
+// Self-check: with the app running, moves the balance to the left and checks it goes back to center.
+// Usage: swift scripts/check.swift
 import AudioToolbox
 import Foundation
 
@@ -13,10 +13,10 @@ var bal = AudioObjectPropertyAddress(mSelector: kAudioHardwareServiceDevicePrope
     mScope: kAudioDevicePropertyScopeOutput, mElement: kAudioObjectPropertyElementMain)
 var left: Float32 = 0
 var fsize = UInt32(MemoryLayout<Float32>.size)
-assert(AudioHardwareServiceSetPropertyData(dev, &bal, 0, nil, fsize, &left) == noErr, "dispositivo não suporta balanço")
+assert(AudioHardwareServiceSetPropertyData(dev, &bal, 0, nil, fsize, &left) == noErr, "device doesn't support balance")
 Thread.sleep(forTimeInterval: 1)
 var now: Float32 = -1
 AudioHardwareServiceGetPropertyData(dev, &bal, 0, nil, &fsize, &now)
-print("balanço após 1s:", now)
-assert(abs(now - 0.5) < 0.01, "FALHOU: balanço não voltou pro centro")
+print("balance after 1s:", now)
+assert(abs(now - 0.5) < 0.01, "FAILED: balance didn't go back to center")
 print("OK")

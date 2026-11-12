@@ -2,12 +2,12 @@ import AppKit
 import AudioToolbox
 import ServiceManagement
 
-// Mantém o balanço L/R do dispositivo de saída padrão sempre no centro (0.5).
+// Keeps the L/R balance of the default output device always centered (0.5).
 final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     let menu = NSMenu()
-    let stateItem = NSMenuItem(title: "Manter centralizado", action: #selector(toggle), keyEquivalent: "")
-    let loginItem = NSMenuItem(title: "Abrir no login", action: #selector(toggleLogin), keyEquivalent: "")
+    let stateItem = NSMenuItem(title: "Keep Centered", action: #selector(toggle), keyEquivalent: "")
+    let loginItem = NSMenuItem(title: "Launch at Login", action: #selector(toggleLogin), keyEquivalent: "")
     var device = AudioObjectID(kAudioObjectUnknown)
     var deviceName = "?"
     var deviceChangedAt = Date.distantPast
@@ -23,7 +23,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         mScope: kAudioObjectPropertyScopeGlobal,
         mElement: kAudioObjectPropertyElementMain)
 
-    // Listener C: chamado quando outro app mexe no balanço.
+    // C listener: called when another app changes the balance.
     let onBalance: AudioObjectPropertyListenerProc = { _, _, _, ctx in
         let app = Unmanaged<App>.fromOpaque(ctx!).takeUnretainedValue()
         DispatchQueue.main.async { app.center() }
@@ -42,13 +42,13 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         loginItem.target = self
         loginItem.image = NSImage(systemSymbolName: "power", accessibilityDescription: nil)
         menu.addItem(loginItem)
-        let logItem = menu.addItem(withTitle: "Abrir log", action: #selector(openLog), keyEquivalent: "")
+        let logItem = menu.addItem(withTitle: "Open Log", action: #selector(openLog), keyEquivalent: "")
         logItem.target = self
         logItem.image = NSImage(systemSymbolName: "doc.text", accessibilityDescription: nil)
         menu.addItem(.separator())
-        menu.addItem(withTitle: "Sair", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        menu.addItem(withTitle: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
 
-        // Troca de dispositivo (fone BT, HDMI...) → reanexa o listener.
+        // Output device changed (BT headphones, HDMI...) → re-attach the listener.
         AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &defaultAddr, .main) { [weak self] _, _ in
             self?.deviceChangedAt = Date()
             self?.attach()
@@ -68,8 +68,8 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func refresh() {
         item.button?.appearsDisabled = paused
         stateItem.state = paused ? .off : .on
-        let fix = lastFix.map { "última correção às \($0.formatted(date: .omitted, time: .shortened))" }
-        stateItem.subtitle = paused ? "Pausado" : "\(deviceName) · \(fix ?? "nenhuma correção")"
+        let fix = lastFix.map { "last fix at \($0.formatted(date: .omitted, time: .shortened))" }
+        stateItem.subtitle = paused ? "Paused" : "\(deviceName) · \(fix ?? "no fixes yet")"
         loginItem.state = SMAppService.mainApp.status == .enabled ? .on : .off
     }
 
@@ -91,22 +91,22 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard !paused else { return }
         var b: Float32 = 0
         var size = UInt32(MemoryLayout<Float32>.size)
-        // Dispositivo sem balanço (ex.: algumas saídas HDMI) → nada a fazer.
+        // Device without balance (e.g. some HDMI outputs) → nothing to do.
         guard AudioHardwareServiceGetPropertyData(device, &balanceAddr, 0, nil, &size, &b) == noErr,
               abs(b - 0.5) > 0.001 else { return }
         var c: Float32 = 0.5
         AudioHardwareServiceSetPropertyData(device, &balanceAddr, 0, nil, size, &c)
         lastFix = Date()
         refresh()
-        // O macOS não informa quem mudou o balanço; registramos os suspeitos.
+        // macOS doesn't tell who changed the balance, so we log the suspects.
         let front = NSWorkspace.shared.frontmostApplication?.localizedName ?? "?"
         let apps = audioApps()
-        let switched = Date().timeIntervalSince(deviceChangedAt) < 5 ? "  [logo após trocar saída]" : ""
-        log(String(format: "%.2f → 0.50  %@  foco: %@  áudio: %@%@", b, deviceName, front,
-                   apps.isEmpty ? "nenhum" : apps.joined(separator: ", "), switched))
+        let switched = Date().timeIntervalSince(deviceChangedAt) < 5 ? "  [right after output change]" : ""
+        log(String(format: "%.2f → 0.50  %@  focus: %@  audio: %@%@", b, deviceName, front,
+                   apps.isEmpty ? "none" : apps.joined(separator: ", "), switched))
     }
 
-    // Apps com saída de áudio ativa agora (macOS 14+), sem repetição.
+    // Apps playing audio right now (macOS 14+), no duplicates.
     func audioApps() -> [String] {
         let sys = AudioObjectID(kAudioObjectSystemObject)
         var addr = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyProcessObjectList,
@@ -118,7 +118,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let names = ids.filter { read($0, kAudioProcessPropertyIsRunningOutput, UInt32(0)) != 0 }.map {
             let pid = read($0, kAudioProcessPropertyPID, pid_t(0))
             if let n = NSRunningApplication(processIdentifier: pid)?.localizedName { return n }
-            var buf = [CChar](repeating: 0, count: 256)  // helpers/daemons sem app
+            var buf = [CChar](repeating: 0, count: 256)  // helpers/daemons without an app
             proc_name(pid, &buf, 256)
             return String(cString: buf)
         }
@@ -137,7 +137,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let logURL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Logs/BalanceKeeper.log")
 
-    // Uma linha por correção; guarda só as últimas 500.
+    // One line per fix; keeps only the last 500.
     func log(_ msg: String) {
         let old = (try? String(contentsOf: logURL, encoding: .utf8)) ?? ""
         let stamp = Date().formatted(date: .numeric, time: .standard)
@@ -146,7 +146,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc func openLog() {
-        // Sem correções ainda → arquivo não existe e o open falha calado.
+        // No fixes yet → file doesn't exist and open fails silently.
         if !FileManager.default.fileExists(atPath: logURL.path) {
             try? "".write(to: logURL, atomically: true, encoding: .utf8)
         }
